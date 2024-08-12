@@ -5,9 +5,9 @@ for SEED in 0 1 2 3 4
 do 
     python3 main.py \
         --task_name ni \
-        --train_data_dir /dfs/scratch0/mfchen/natural-instructions \
-	    --val_data_dir /dfs/scratch0/mfchen/natural-instructions \
-        --dev_split_path /dfs/scratch0/mfchen/ws-data-selection/xlingual_dev_split_map.pkl \
+        --train_data_dir ~/natural-instructions \
+	    --val_data_dir ~/natural-instructions \
+        --dev_split_path ./aux_data/xlingual_dev_split_map.pkl \
         --ni_task_info_path ./aux_data/ni_xlingual_task_info.pkl \
         --selection_seed ${SEED} \
         --max_steps 600 \
