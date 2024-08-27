@@ -364,7 +364,15 @@ class NIStreamDataset(IterableDataset):
         # boolean flag for if we have sampled all instances from the task
         task_done = False
         while True:
-                # only pick instances that are not already sampled
+            # only pick instances that are not already sampled
+            if len(task["Instances"]) == 0: 
+                # if we have no instances, we just return the task definition
+                input_ids = self.tokenizer(text_context.strip(), padding="max_length")["input_ids"]
+                self.tasks_so_far.add(task_name)
+                self.samples_so_far[task_name] = ([])
+                task_done = True
+                break
+
             instance_idx = np.random.choice(
                 np.setdiff1d(
                     np.arange(len(task["Instances"])),
@@ -375,15 +383,17 @@ class NIStreamDataset(IterableDataset):
             instance = task["Instances"][instance_idx]
             self.samples_so_far[task_name].append(instance_idx)
 
-            
-            text_context += (
-                sample_splitter
-                + text_input
-                + instance["input"]
-                + answer_splitter
-                + text_output
-                + random.choice(instance["output"])
-            )
+            try:
+                text_context += (
+                    sample_splitter
+                    + text_input
+                    + instance["input"]
+                    + answer_splitter
+                    + text_output
+                    + random.choice(instance["output"])
+                )
+            except Exception as e:
+                import pdb; pdb.set_trace()
             
             if self.one_sample_per_window:
                 input_ids = self.tokenizer(text_context.strip(), padding="max_length")['input_ids']
@@ -396,8 +406,10 @@ class NIStreamDataset(IterableDataset):
             if set(np.arange(len(task["Instances"]))) == set(
                 self.samples_so_far[task_name]
             ):
-                
                 # if we have now sampled all instances in a task, tokenize the data and update samples_so_far and tasks_so_far
+                if ('task1334' in task_name or 'task1610' in task_name) and (not self.is_eval):
+                    # import pdb; pdb.set_trace()
+                    print(f"{task_name}: finished all samples. resetting cache")
                 input_ids = self.tokenizer(text_context.strip(), padding="max_length")["input_ids"]
                 self.tasks_so_far.add(task_name)
                 self.samples_so_far[task_name] = ([])  

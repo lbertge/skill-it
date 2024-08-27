@@ -5,6 +5,7 @@ from transformers import set_seed
 import argparse
 from datetime import datetime
 from utils import get_trainer, get_logger, get_val_dataset, get_evaluator, make_output_dir, GPTNeoForCausalLMLossPerPoint
+from transformers import AutoConfig
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 set_seed(42)
 
@@ -12,6 +13,11 @@ set_seed(42)
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Skill-It data selection"
+    )
+    parser.add_argument(
+        "--pretrained",
+        action=argparse.BooleanOptionalAction,
+        help="Use a pretrained model", 
     )
     # data loading arguments
     parser.add_argument(
@@ -345,6 +351,8 @@ def parse_args():
 def main():
     run_id = datetime.now().strftime("%m%d%Y")
     _ = wandb.init(mode="disabled")
+    # wandb.init(project="skill-it")
+
     args = parse_args()
     output_dir_path = make_output_dir(args.output_dir, args.session_id, run_id)
     
@@ -353,7 +361,14 @@ def main():
 
     tokenizer = GPT2TokenizerFast.from_pretrained(args.model_name)
     tokenizer.pad_token = tokenizer.eos_token
-    model = GPTNeoForCausalLMLossPerPoint.from_pretrained(args.model_name).cuda()
+
+    if args.pretrained: 
+        model = GPTNeoForCausalLMLossPerPoint.from_pretrained(args.model_name).cuda()
+    else:
+        print("Using untrained model.")
+        config = AutoConfig.from_pretrained(args.model_name)
+        model = GPTNeoForCausalLMLossPerPoint._from_config(config).cuda()
+    
 
     logger.info("Constructing validation data.")
     validation_data = get_val_dataset(args, logger, tokenizer)
