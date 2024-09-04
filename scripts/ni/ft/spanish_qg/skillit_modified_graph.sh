@@ -20,7 +20,7 @@ do
         --eta 0.8 \
         --mw_window 3 \
         --update_steps 100 \
-        --graph_path ./ni_graphs/spanish_qg_normalized.npy \
+        --graph_path ./ni_graphs/spanish_qa_qg_normalized.npy \
         --filter_val_skills \
         --num_ckpts 6
 done 
