@@ -408,7 +408,6 @@ class NIStreamDataset(IterableDataset):
             ):
                 # if we have now sampled all instances in a task, tokenize the data and update samples_so_far and tasks_so_far
                 if ('task1334' in task_name or 'task1610' in task_name) and (not self.is_eval):
-                    # import pdb; pdb.set_trace()
                     print(f"{task_name}: finished all samples. resetting cache")
                 input_ids = self.tokenizer(text_context.strip(), padding="max_length")["input_ids"]
                 self.tasks_so_far.add(task_name)

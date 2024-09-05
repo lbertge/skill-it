@@ -344,14 +344,19 @@ def parse_args():
         default=None,
         help="Name of specific folder (generally MonthDateYear) to save results to."
     )
+    parser.add_argument( 
+        "--output_folder_method",
+        default=None,
+        help="Method to save output folder (e.g. for fractions experiments)."
+    )
 
     args = parser.parse_args()
     return args
 
 def main():
     run_id = datetime.now().strftime("%m%d%Y")
-    _ = wandb.init(mode="disabled")
-    # wandb.init(project="skill-it")
+    # _ = wandb.init(mode="disabled")
+    wandb.init(project="skill-it")
 
     args = parse_args()
     output_dir_path = make_output_dir(args.output_dir, args.session_id, run_id)

@@ -129,6 +129,10 @@ class NIEvaluator(AbstractEvaluator):
         if method_name.endswith("_"):
             method_name = method_name[:-1]
 
+        if self.args.output_folder_method: 
+            # insert at the beginning of the string
+            method_name = f"{self.args.output_folder_method}_{method_name}"
+
         return method_name     
 
 
