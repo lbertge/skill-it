@@ -349,6 +349,11 @@ def parse_args():
         default=None,
         help="Method to save output folder (e.g. for fractions experiments)."
     )
+    parser.add_argument(
+        "--loss_scale_factor",
+        default=None,
+        help="Scale loss for mw training"
+    )
 
     args = parser.parse_args()
     return args

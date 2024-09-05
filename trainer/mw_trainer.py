@@ -192,6 +192,10 @@ class MWTrainer(AbstractTrainer):
                         loss_arr = np.array(all_losses[max(0, idx - args.mw_window) : idx]).mean(axis=0)
                     else:
                         loss_arr = np.array(all_losses[max(0, idx - args.mw_window): idx]).sum(axis=0)
+
+                    import pdb; pdb.set_trace()
+                    if args.loss_scale_factor:
+                        loss_arr = loss_arr * args.loss_scale_factor
                 
                     if args.normalize_loss:
                         weights = np.multiply(weights_init, np.exp(eta_t * graph.dot(np.divide(loss_arr, loss_0))))
