@@ -352,6 +352,7 @@ def parse_args():
     parser.add_argument(
         "--loss_scale_factor",
         default=None,
+        type=int,
         help="Scale loss for mw training"
     )
 
