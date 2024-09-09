@@ -1,5 +1,6 @@
 .vscode
 */scripts/
-*/output/
+*/output/*
+*/wandb/*
 */__pycache__/
 *.log
