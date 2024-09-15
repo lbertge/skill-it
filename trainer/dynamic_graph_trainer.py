@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -186,50 +187,92 @@ class DynamicGraphTrainer(AbstractTrainer):
             # for each skill, train solely on that skill for update_steps
             # compute loss for each skill 
 
-            # save current proportions
-            old_proportions = train_data.proportions
-            for skill_idx in range(args.k):
-                train_data.set_proportions(args, np.eye(args.k)[skill_idx])
-                tokenized_train = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
-                train_dataloader = get_train_dataloader(args.task_name, tokenizer, tokenized_train, args.batch_size, args.slicer)
-                tmp_optimizer, tmp_lr_scheduler = create_optimizer_scheduler(model, args.lr, args.update_steps)
+            logger.info("Starting per-skill training and evaluation to build adjacency matrix.")
 
-                model.zero_grad()
+            # Initialize adjacency matrix
+            adjacency_matrix = np.zeros((args.k, args.k))
 
-                import pdb; pdb.set_trace()
-                print("evaluating for skill", skill_idx)
+            import pdb; pdb.set_trace()
+            for i in range(args.k):
+                logger.info(f"Training model copy on skill {i}.")
 
-                for idx, batch in enumerate(train_dataloader):
-                    model.train()
+                # Create a deep copy of the model
+                model_copy = copy.deepcopy(model)
+                model_copy = model_copy.cuda()
+
+                # Set the copied model to training mode
+                model_copy.train()
+
+                # Create optimizer and scheduler for the copied model
+                optimizer_copy, scheduler_copy = create_optimizer_scheduler(model_copy, args.lr, args.update_steps)
+
+                # Filter training data for skill i
+                # Assuming train_data is a list of dictionaries or a Pandas DataFrame
+                if isinstance(train_data, pd.DataFrame):
+                    train_data_i = train_data[train_data['skill'] == i]
+                else:
+                    # If train_data is a list of dicts
+                    train_data_i = [item for item in train_data if item['skill'] == i]
+
+                # Tokenize the filtered training data
+                tokenized_train_i = get_tokenized_train_dataset(args, train_data_i, args.update_steps * args.batch_size)
+
+                # Create dataloader for the filtered training data
+                train_dataloader_i = get_train_dataloader(args.task_name, tokenizer, tokenized_train_i, args.batch_size, args.slicer)
+
+                # Training loop for the copied model
+                for step, batch in enumerate(train_dataloader_i):
+                    if step >= args.update_steps:
+                        break
+
                     batch = {k: v.cuda() for k, v in batch.items() if torch.is_tensor(v)}
-                    outputs = model(**batch)
+                    outputs = model_copy(**batch)
                     loss = outputs.loss
-                    loss.mean().backward()
+                    loss.backward()
+                    clip_grad_norm_(model_copy.parameters(), max_grad_norm)
+                    optimizer_copy.step()
+                    lr_scheduler.step()
+                    model_copy.zero_grad()
 
-                    clip_grad_norm_(model.parameters(), max_grad_norm)
-                    tmp_optimizer.step()
-                    tmp_lr_scheduler.step()
-                    model.zero_grad()
-                # compute loss for each skill
-                for other_skill_idx in range(args.k):
-                    loss_dict = evaluator.evaluate(
-                        tokenized_val, counter, weights, output_idxs
+                logger.info(f"Completed training on skill {i}.")
+
+                # Evaluation on all skills
+                for j in range(args.k):
+                    logger.info(f"Evaluating model trained on skill {i} on skill {j}.")
+
+                    # Filter validation data for skill j
+                    if isinstance(validation_data, pd.DataFrame):
+                        val_data_j = validation_data[validation_data['skill'] == j]
+                    else:
+                        # Assuming validation_data has a method to filter by skill
+                        val_data_j = validation_data.get_skill_dataset(j)
+
+                    # Tokenize the filtered validation data
+                    tokenized_val_j, output_idxs_j = val_data_j.get_tokenized_dataset()
+
+                    # Evaluate using the evaluator
+                    # Assuming evaluator.evaluate can accept a model parameter
+                    loss_j = evaluator.evaluate(
+                        tokenized_val_j, 
+                        model_copy,  # Pass the copied model
+                        counter, 
+                        weights, 
+                        output_idxs_j
                     )
-                loss_dict = evaluator.evaluate(
-                    tokenized_val, counter, weights, output_idxs
-                )
 
-                # what's in here?
-                import pdb; pdb.set_trace()
+                    # Store the loss in the adjacency matrix
+                    adjacency_matrix[i, j] = loss_j
 
+                # Cleanup the copied model to free GPU memory
+                del model_copy
+                torch.cuda.empty_cache()
 
+            # Log the adjacency matrix
+            logger.info(f"Adjacency Matrix (Losses when trained on i and evaluated on j):\n{adjacency_matrix}")
+            wandb.log({"adjacency_matrix": adjacency_matrix})
 
-                    
-
-
-                    
-
-            
+            # Optionally, save the adjacency matrix to a file
+            np.save("adjacency_matrix.npy", adjacency_matrix)
             
             # update skills mixture 
             idx = len(all_losses)            

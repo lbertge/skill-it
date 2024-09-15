@@ -1,5 +1,5 @@
 #!/bin/bash
-for SEED in 0 1 2 3 4
+for SEED in 0
 do 
     python3 main.py \
         --task_name ni \
