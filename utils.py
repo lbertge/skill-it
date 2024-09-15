@@ -16,6 +16,7 @@ from trainer.group_curriculum_trainer import GroupCurriculumTrainer
 from trainer.manual_trainer import ManualTrainer 
 from trainer.mw_trainer import MWTrainer 
 from trainer.static_trainer import StaticTrainer
+from trainer.dynamic_graph_trainer import DynamicGraphTrainer
 
 from dataset.addition_dataset import AdditionDataset
 from dataset.alpaca_dataset import AlpacaDataset
@@ -66,6 +67,8 @@ def get_trainer(args):
         trainer = GroupCurriculumTrainer()
     elif not args.group_curriculum and (args.curriculum or args.anticurriculum):
         trainer = CurriculumTrainer()
+    elif args.dynamic_graph:
+        trainer = DynamicGraphTrainer() 
     else:
         trainer = StaticTrainer()
     return trainer 

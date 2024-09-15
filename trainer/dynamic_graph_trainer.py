@@ -10,7 +10,8 @@ from .utils import get_steps, create_optimizer_scheduler, aggregate_task_categor
 
 from .trainer import AbstractTrainer
 
-class MWTrainer(AbstractTrainer):
+
+class DynamicGraphTrainer(AbstractTrainer):
     def train(
         self,
         args,
@@ -180,6 +181,55 @@ class MWTrainer(AbstractTrainer):
             
             if counter == total_steps:
                 break 
+
+            # save model checkpoint
+            # for each skill, train solely on that skill for update_steps
+            # compute loss for each skill 
+
+            # save current proportions
+            old_proportions = train_data.proportions
+            for skill_idx in range(args.k):
+                train_data.set_proportions(args, np.eye(args.k)[skill_idx])
+                tokenized_train = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
+                train_dataloader = get_train_dataloader(args.task_name, tokenizer, tokenized_train, args.batch_size, args.slicer)
+                tmp_optimizer, tmp_lr_scheduler = create_optimizer_scheduler(model, args.lr, args.update_steps)
+
+                model.zero_grad()
+
+                import pdb; pdb.set_trace()
+                print("evaluating for skill", skill_idx)
+
+                for idx, batch in enumerate(train_dataloader):
+                    model.train()
+                    batch = {k: v.cuda() for k, v in batch.items() if torch.is_tensor(v)}
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    loss.mean().backward()
+
+                    clip_grad_norm_(model.parameters(), max_grad_norm)
+                    tmp_optimizer.step()
+                    tmp_lr_scheduler.step()
+                    model.zero_grad()
+                # compute loss for each skill
+                for other_skill_idx in range(args.k):
+                    loss_dict = evaluator.evaluate(
+                        tokenized_val, counter, weights, output_idxs
+                    )
+                loss_dict = evaluator.evaluate(
+                    tokenized_val, counter, weights, output_idxs
+                )
+
+                # what's in here?
+                import pdb; pdb.set_trace()
+
+
+
+                    
+
+
+                    
+
+            
             
             # update skills mixture 
             idx = len(all_losses)            

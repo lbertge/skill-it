@@ -225,6 +225,11 @@ def parse_args():
         help="Use 'multiplicative weights' (e.g., Skill-It online sampling) algorithm"
     )
     parser.add_argument(
+        "--dynamic_graph",
+        action="store_true",
+        help="If true, we use a dynamic graph for sampling. This is useful when we believe that dependencies among skills change over time."
+    )
+    parser.add_argument(
         "--update_steps",
         type=int,
         default=None,
@@ -234,6 +239,16 @@ def parse_args():
         "--eta",
         type=float,
         help="eta parameter for weight update"
+    )
+    parser.add_argument( 
+        "--no_exp",
+        action="store_true",
+        help="If true, we do not exponentiate the loss in the weight update."
+    )
+    parser.add_argument(
+        "--argmax",
+        action="store_true",
+        help="If true, we sample from the argmax of the weight distribution."
     )
     parser.add_argument(
         "--eta_schedule",
@@ -361,8 +376,8 @@ def parse_args():
 
 def main():
     run_id = datetime.now().strftime("%m%d%Y")
-    # _ = wandb.init(mode="disabled")
-    wandb.init(project="skill-it")
+    _ = wandb.init(mode="disabled")
+    # wandb.init(project="skill-it")
 
     args = parse_args()
     output_dir_path = make_output_dir(args.output_dir, args.session_id, run_id)
