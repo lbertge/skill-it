@@ -136,7 +136,9 @@ class NIDataset(AbstractDataset):
         self.tasks_to_p = {}
 
         if self.sample_rule == "mixture":
-            if proportions is not None and ".npy" in proportions:
+            if type(proportions) == np.ndarray: 
+                pass
+            elif proportions is not None and ".npy" in proportions:
                 proportions = np.load(proportions)
             elif args.graph is not None or args.graph_path is not None and not args.mw:
                 proportions = get_weights_from_graph(args)  
@@ -158,6 +160,7 @@ class NIDataset(AbstractDataset):
                 self.logger.info(f"Performing uniform sampling over tasks.")
                 n_tasks = len(self.train_task_info.long_task.values)
                 self.tasks_to_p = {task: 1.0 / n_tasks for task in self.train_task_info.long_task.values}
+                self.proportions = [1.0 / len(self.skills) for _ in range(len(self.skills))]
 
         elif self.sample_rule == "stratified":
             self.logger.info(f"Performing stratified sampling over skills.")
@@ -171,6 +174,7 @@ class NIDataset(AbstractDataset):
             all_tasks = [item for sublist in list(self.skills_to_tasks.values()) for item in sublist]
             n_tasks = len(all_tasks)
             self.tasks_to_p = {task: 1.0 / n_tasks for task in all_tasks}
+            self.proportions = [1.0 / len(self.skills) for _ in range(len(self.skills))]
 
 
     def get_tokenized_dataset(self):

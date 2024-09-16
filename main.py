@@ -397,6 +397,7 @@ def main():
     
 
     logger.info("Constructing validation data.")
+    import pdb; pdb.set_trace()
     validation_data = get_val_dataset(args, logger, tokenizer)
     
     evaluator = get_evaluator(args, logger, model, tokenizer, output_dir_path)    

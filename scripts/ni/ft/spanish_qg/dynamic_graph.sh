@@ -3,9 +3,9 @@ for SEED in 0
 do 
     python3 main.py \
         --task_name ni \
-        --train_data_dir ~/natural-instructions \
+        --train_data_dir /data/albert/natural-instructions \
         --pretrained \
-	    --val_data_dir ~/natural-instructions \
+	    --val_data_dir /data/albert/natural-instructions \
         --dev_split_path ./aux_data/xlingual_dev_split_map.pkl \
         --ni_task_info_path ./aux_data/ni_xlingual_task_info.pkl \
         --selection_seed ${SEED} \
@@ -19,8 +19,8 @@ do
         --dynamic_graph \
         --eta 0.8 \
         --mw_window 3 \
-        --update_steps 100 \
+        --update_steps 10 \
         --graph_path ./ni_graphs/spanish_qg_normalized.npy \
         --filter_val_skills \
-        --num_ckpts 6
+        --num_ckpts 60
 done 

@@ -145,33 +145,34 @@ class DynamicGraphTrainer(AbstractTrainer):
                     wandb.log({"train_loss": loss})
                     
                 if counter % ckpt_steps == 0:                    
-                    loss_dict = evaluator.evaluate(
-                        tokenized_val, counter, weights, output_idxs
-                    )  
+                    pass
+                    # loss_dict = evaluator.evaluate(
+                    #     tokenized_val, counter, weights, output_idxs
+                    # )  
                     
-                    if args.task_name == "ni":
-                        tokenized_val, _ = validation_data.get_tokenized_dataset()          
+                    # if args.task_name == "ni":
+                    #     tokenized_val, _ = validation_data.get_tokenized_dataset()          
                     
-                    # compute losses every ckpt_steps 
-                    df= pd.DataFrame([{"task_idx": k, "loss": [values.numpy() for values in v]} for k, v in loss_dict.items()])
-                    df = df.groupby("task_idx").apply(lambda x: aggregate_task_category(x)).reset_index()
-                    df = df.sort_values(by="task_idx")
-                    if args.target_mask is not None:
-                        df = df.loc[df.index.isin(target_idxs)] # filter to only be the losses we care about 
-                    logger.info(df.head())
+                    # # compute losses every ckpt_steps 
+                    # df= pd.DataFrame([{"task_idx": k, "loss": [values.numpy() for values in v]} for k, v in loss_dict.items()])
+                    # df = df.groupby("task_idx").apply(lambda x: aggregate_task_category(x)).reset_index()
+                    # df = df.sort_values(by="task_idx")
+                    # if args.target_mask is not None:
+                    #     df = df.loc[df.index.isin(target_idxs)] # filter to only be the losses we care about 
+                    # logger.info(df.head())
                     
-                    if counter == 0:
-                        loss_0 = df.task_loss.values
-                        if args.initialize_loss:
-                            all_losses[0] = all_losses[0] * loss_0.mean()
-                        if args.ignore_lone_nodes:
-                            loss_0 = np.array(loss_0)[mw_idxs]
-                    elif counter == ckpt_steps:
-                        loss_0 = df.task_loss.values
-                        if args.ignore_lone_nodes:
-                            loss_0 = np.array(loss_0)[mw_idxs]
+                    # if counter == 0:
+                    #     loss_0 = df.task_loss.values
+                    #     if args.initialize_loss:
+                    #         all_losses[0] = all_losses[0] * loss_0.mean()
+                    #     if args.ignore_lone_nodes:
+                    #         loss_0 = np.array(loss_0)[mw_idxs]
+                    # elif counter == ckpt_steps:
+                    #     loss_0 = df.task_loss.values
+                    #     if args.ignore_lone_nodes:
+                    #         loss_0 = np.array(loss_0)[mw_idxs]
      
-                    all_losses.append(df.task_loss.values)
+                    # all_losses.append(df.task_loss.values)
                     
                 dataloader_step += 1     
                 counter += 1
@@ -192,6 +193,9 @@ class DynamicGraphTrainer(AbstractTrainer):
             # Initialize adjacency matrix
             adjacency_matrix = np.zeros((args.k, args.k))
 
+            current_train_proportions = train_data.proportions
+            current_val_proportions = validation_data.proportions
+
             import pdb; pdb.set_trace()
             for i in range(args.k):
                 logger.info(f"Training model copy on skill {i}.")
@@ -206,19 +210,14 @@ class DynamicGraphTrainer(AbstractTrainer):
                 # Create optimizer and scheduler for the copied model
                 optimizer_copy, scheduler_copy = create_optimizer_scheduler(model_copy, args.lr, args.update_steps)
 
-                # Filter training data for skill i
-                # Assuming train_data is a list of dictionaries or a Pandas DataFrame
-                if isinstance(train_data, pd.DataFrame):
-                    train_data_i = train_data[train_data['skill'] == i]
-                else:
-                    # If train_data is a list of dicts
-                    train_data_i = [item for item in train_data if item['skill'] == i]
+                
+                # train on skill i, so set the proportion of skill i to 1, and all others to 0
+                tmp_weights = np.zeros(args.k)
+                tmp_weights[i] = 1
 
-                # Tokenize the filtered training data
-                tokenized_train_i = get_tokenized_train_dataset(args, train_data_i, args.update_steps * args.batch_size)
-
-                # Create dataloader for the filtered training data
-                train_dataloader_i = get_train_dataloader(args.task_name, tokenizer, tokenized_train_i, args.batch_size, args.slicer)
+                train_data.set_proportions(args, tmp_weights)
+                tokenized_train_i = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
+                train_dataloader_i = get_train_dataloader(args.task_name, tokenizer, tokenized_train, args.batch_size, args.slicer)
 
                 # Training loop for the copied model
                 for step, batch in enumerate(train_dataloader_i):
@@ -240,15 +239,12 @@ class DynamicGraphTrainer(AbstractTrainer):
                 for j in range(args.k):
                     logger.info(f"Evaluating model trained on skill {i} on skill {j}.")
 
-                    # Filter validation data for skill j
-                    if isinstance(validation_data, pd.DataFrame):
-                        val_data_j = validation_data[validation_data['skill'] == j]
-                    else:
-                        # Assuming validation_data has a method to filter by skill
-                        val_data_j = validation_data.get_skill_dataset(j)
+                    tmp_weights = np.zeros(args.k)
+                    tmp_weights[j] = 1
+                    validation_data.set_proportions(args, tmp_weights)
 
                     # Tokenize the filtered validation data
-                    tokenized_val_j, output_idxs_j = val_data_j.get_tokenized_dataset()
+                    tokenized_val_j, output_idxs_j = validation_data.get_tokenized_dataset()
 
                     # Evaluate using the evaluator
                     # Assuming evaluator.evaluate can accept a model parameter
