@@ -196,7 +196,6 @@ class DynamicGraphTrainer(AbstractTrainer):
             current_train_proportions = train_data.proportions
             current_val_proportions = validation_data.proportions
 
-            import pdb; pdb.set_trace()
             for i in range(args.k):
                 logger.info(f"Training model copy on skill {i}.")
 
@@ -227,7 +226,7 @@ class DynamicGraphTrainer(AbstractTrainer):
                     batch = {k: v.cuda() for k, v in batch.items() if torch.is_tensor(v)}
                     outputs = model_copy(**batch)
                     loss = outputs.loss
-                    loss.backward()
+                    loss.mean().backward()
                     clip_grad_norm_(model_copy.parameters(), max_grad_norm)
                     optimizer_copy.step()
                     lr_scheduler.step()
