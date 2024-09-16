@@ -194,7 +194,7 @@ class DynamicGraphTrainer(AbstractTrainer):
             adjacency_matrix = np.zeros((args.k, args.k))
 
             current_train_proportions = train_data.proportions
-            current_val_proportions = validation_data.proportions
+            # current_val_proportions = validation_data.proportions
 
             for i in range(args.k):
                 logger.info(f"Training model copy on skill {i}.")
@@ -234,38 +234,24 @@ class DynamicGraphTrainer(AbstractTrainer):
 
                 logger.info(f"Completed training on skill {i}.")
 
-                # Evaluation on all skills
-                for j in range(args.k):
-                    logger.info(f"Evaluating model trained on skill {i} on skill {j}.")
+                logger.info(f"Evaluating model trained on skill {i} on all skills.")
+                loss_j = evaluator.evaluate(
+                    tokenized_val,
+                    counter,
+                    weights, 
+                    output_idxs
+                )
 
-                    tmp_weights = np.zeros(args.k)
-                    tmp_weights[j] = 1
-                    validation_data.set_proportions(args, tmp_weights)
-                    
-                    evaluator.model = model_copy
-
-                    # Tokenize the filtered validation data
-                    tokenized_val_j, output_idxs_j = validation_data.get_tokenized_dataset()
-
-                    # Evaluate using the evaluator
-                    # Assuming evaluator.evaluate can accept a model parameter
-                    loss_j = evaluator.evaluate(
-                        tokenized_val_j, 
-                        counter, 
-                        weights, 
-                        output_idxs_j
-                    )
-
-                    # Store the loss in the adjacency matrix
-                    adjacency_matrix[i, j] = loss_j
+                # import pdb; pdb.set_trace()
+                for j, skill_j in enumerate(loss_j):
+                    adjacency_matrix[i, j] = np.array(loss_j[skill_j]).mean()
 
                 # Cleanup the copied model to free GPU memory
                 del model_copy
                 torch.cuda.empty_cache()
 
             # reset train proportions back to original values
-            train_data.set_proportions(current_train_proportions)
-            validation_data.set_proportions(current_val_proportions)
+            train_data.set_proportions(args, current_train_proportions)
             evaluator.model = model
 
             # Log the adjacency matrix
@@ -274,6 +260,11 @@ class DynamicGraphTrainer(AbstractTrainer):
 
             # Optionally, save the adjacency matrix to a file
             np.save("adjacency_matrix.npy", adjacency_matrix)
+
+            print("Previous graph: ", graph) 
+            print("New graph: ", adjacency_matrix)
+
+            graph = adjacency_matrix
             
             # update skills mixture 
             idx = len(all_losses)            
