@@ -241,6 +241,8 @@ class DynamicGraphTrainer(AbstractTrainer):
                     tmp_weights = np.zeros(args.k)
                     tmp_weights[j] = 1
                     validation_data.set_proportions(args, tmp_weights)
+                    
+                    evaluator.model = model_copy
 
                     # Tokenize the filtered validation data
                     tokenized_val_j, output_idxs_j = validation_data.get_tokenized_dataset()
@@ -249,7 +251,6 @@ class DynamicGraphTrainer(AbstractTrainer):
                     # Assuming evaluator.evaluate can accept a model parameter
                     loss_j = evaluator.evaluate(
                         tokenized_val_j, 
-                        model_copy,  # Pass the copied model
                         counter, 
                         weights, 
                         output_idxs_j
@@ -261,6 +262,11 @@ class DynamicGraphTrainer(AbstractTrainer):
                 # Cleanup the copied model to free GPU memory
                 del model_copy
                 torch.cuda.empty_cache()
+
+            # reset train proportions back to original values
+            train_data.set_proportions(current_train_proportions)
+            validation_data.set_proportions(current_val_proportions)
+            evaluator.model = model
 
             # Log the adjacency matrix
             logger.info(f"Adjacency Matrix (Losses when trained on i and evaluated on j):\n{adjacency_matrix}")

@@ -376,8 +376,8 @@ def parse_args():
 
 def main():
     run_id = datetime.now().strftime("%m%d%Y")
-    _ = wandb.init(mode="disabled")
-    # wandb.init(project="skill-it")
+    # _ = wandb.init(mode="disabled")
+    wandb.init(project="skill-it")
 
     args = parse_args()
     output_dir_path = make_output_dir(args.output_dir, args.session_id, run_id)
@@ -397,7 +397,6 @@ def main():
     
 
     logger.info("Constructing validation data.")
-    import pdb; pdb.set_trace()
     validation_data = get_val_dataset(args, logger, tokenizer)
     
     evaluator = get_evaluator(args, logger, model, tokenizer, output_dir_path)    
