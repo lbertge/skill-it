@@ -59,7 +59,7 @@ class DynamicGraphTrainer(AbstractTrainer):
         else:
             graph = np.eye(args.k)
         
-        
+        prev_graph = graph.copy()
         if args.target_mask is not None:
             args.target_mask = np.array([int(i) for i in args.target_mask])
             target_idxs = np.where(args.target_mask == 1)[0]
@@ -145,34 +145,33 @@ class DynamicGraphTrainer(AbstractTrainer):
                     wandb.log({"train_loss": loss})
                     
                 if counter % ckpt_steps == 0:                    
-                    pass
-                    # loss_dict = evaluator.evaluate(
-                    #     tokenized_val, counter, weights, output_idxs
-                    # )  
+                    loss_dict = evaluator.evaluate(
+                        tokenized_val, counter, weights, output_idxs
+                    )  
                     
-                    # if args.task_name == "ni":
-                    #     tokenized_val, _ = validation_data.get_tokenized_dataset()          
+                    if args.task_name == "ni":
+                        tokenized_val, _ = validation_data.get_tokenized_dataset()          
                     
-                    # # compute losses every ckpt_steps 
-                    # df= pd.DataFrame([{"task_idx": k, "loss": [values.numpy() for values in v]} for k, v in loss_dict.items()])
-                    # df = df.groupby("task_idx").apply(lambda x: aggregate_task_category(x)).reset_index()
-                    # df = df.sort_values(by="task_idx")
-                    # if args.target_mask is not None:
-                    #     df = df.loc[df.index.isin(target_idxs)] # filter to only be the losses we care about 
-                    # logger.info(df.head())
+                    # compute losses every ckpt_steps 
+                    df= pd.DataFrame([{"task_idx": k, "loss": [values.numpy() for values in v]} for k, v in loss_dict.items()])
+                    df = df.groupby("task_idx").apply(lambda x: aggregate_task_category(x)).reset_index()
+                    df = df.sort_values(by="task_idx")
+                    if args.target_mask is not None:
+                        df = df.loc[df.index.isin(target_idxs)] # filter to only be the losses we care about 
+                    logger.info(df.head())
                     
-                    # if counter == 0:
-                    #     loss_0 = df.task_loss.values
-                    #     if args.initialize_loss:
-                    #         all_losses[0] = all_losses[0] * loss_0.mean()
-                    #     if args.ignore_lone_nodes:
-                    #         loss_0 = np.array(loss_0)[mw_idxs]
-                    # elif counter == ckpt_steps:
-                    #     loss_0 = df.task_loss.values
-                    #     if args.ignore_lone_nodes:
-                    #         loss_0 = np.array(loss_0)[mw_idxs]
+                    if counter == 0:
+                        loss_0 = df.task_loss.values
+                        if args.initialize_loss:
+                            all_losses[0] = all_losses[0] * loss_0.mean()
+                        if args.ignore_lone_nodes:
+                            loss_0 = np.array(loss_0)[mw_idxs]
+                    elif counter == ckpt_steps:
+                        loss_0 = df.task_loss.values
+                        if args.ignore_lone_nodes:
+                            loss_0 = np.array(loss_0)[mw_idxs]
      
-                    # all_losses.append(df.task_loss.values)
+                    all_losses.append(df.task_loss.values)
                     
                 dataloader_step += 1     
                 counter += 1
@@ -229,22 +228,31 @@ class DynamicGraphTrainer(AbstractTrainer):
                     loss.mean().backward()
                     clip_grad_norm_(model_copy.parameters(), max_grad_norm)
                     optimizer_copy.step()
-                    lr_scheduler.step()
+                    scheduler_copy.step()
                     model_copy.zero_grad()
 
                 logger.info(f"Completed training on skill {i}.")
 
                 logger.info(f"Evaluating model trained on skill {i} on all skills.")
-                loss_j = evaluator.evaluate(
-                    tokenized_val,
-                    counter,
-                    weights, 
-                    output_idxs
-                )
 
-                # import pdb; pdb.set_trace()
+
+                evaluator.model = model_copy
+                loss_j = evaluator.evaluate( tokenized_val, counter, tmp_weights, None)
+
+                # reset tokenized_val
+                if args.task_name == "ni":
+                    tokenized_val, _ = validation_data.get_tokenized_dataset()          
+
+                before_loss = all_losses[-1]
+                after_loss = []
                 for j, skill_j in enumerate(loss_j):
-                    adjacency_matrix[i, j] = np.array(loss_j[skill_j]).mean()
+                    after_loss.append(np.array(loss_j[skill_j]).mean())
+
+                # adjacency matrix value at (i, j) is the difference between the loss of skill j before and after training on skill i
+                delta_loss = np.array(after_loss) - np.array(before_loss)
+
+                # the columns of the adjacency matrix are the losses when trained on i and evaluated on j
+                adjacency_matrix[i] = delta_loss
 
                 # Cleanup the copied model to free GPU memory
                 del model_copy
@@ -261,10 +269,15 @@ class DynamicGraphTrainer(AbstractTrainer):
             # Optionally, save the adjacency matrix to a file
             np.save("adjacency_matrix.npy", adjacency_matrix)
 
-            print("Previous graph: ", graph) 
+            print("Previous graph: ", prev_graph) 
             print("New graph: ", adjacency_matrix)
 
-            graph = adjacency_matrix
+            if args.target_mask is not None:
+                graph = adjacency_matrix[:, target_idxs]
+            else:
+                graph = adjacency_matrix
+            
+            prev_graph = graph.copy()
             
             # update skills mixture 
             idx = len(all_losses)            
