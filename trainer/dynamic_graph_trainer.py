@@ -11,6 +11,87 @@ from .utils import get_steps, create_optimizer_scheduler, aggregate_task_categor
 
 from .trainer import AbstractTrainer
 
+def compute_skills_graph(args, logger, model, train_data, validation_data, tokenized_val, evaluator, tokenizer, counter, all_losses):
+    logger.info("Starting per-skill training and evaluation to build adjacency matrix.")
+
+    max_grad_norm = 1.0
+
+    # Initialize adjacency matrix
+    adjacency_matrix = np.zeros((args.k, args.k))
+
+    current_train_proportions = train_data.proportions
+
+    # save model checkpoint
+    # for each skill, train solely on that skill for update_steps
+    # compute loss for each skill 
+    for i in range(args.k):
+        logger.info(f"Training model copy on skill {i}.")
+
+        # Create a deep copy of the model
+        model_copy = copy.deepcopy(model)
+        model_copy = model_copy.cuda()
+
+        # Set the copied model to training mode
+        model_copy.train()
+
+        # Create optimizer and scheduler for the copied model
+        optimizer_copy, scheduler_copy = create_optimizer_scheduler(model_copy, args.lr, args.update_steps)
+
+        
+        # train on skill i, so set the proportion of skill i to 1, and all others to 0
+        tmp_weights = np.zeros(args.k)
+        tmp_weights[i] = 1
+
+        train_data.set_proportions(args, tmp_weights)
+        tokenized_train_i = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
+        train_dataloader_i = get_train_dataloader(args.task_name, tokenizer, tokenized_train_i, args.batch_size, args.slicer)
+
+        # Training loop for the copied model
+        for step, batch in enumerate(train_dataloader_i):
+            if step >= args.update_steps:
+                break
+
+            batch = {k: v.cuda() for k, v in batch.items() if torch.is_tensor(v)}
+            outputs = model_copy(**batch)
+            loss = outputs.loss
+            loss.mean().backward()
+            clip_grad_norm_(model_copy.parameters(), max_grad_norm)
+            optimizer_copy.step()
+            scheduler_copy.step()
+            model_copy.zero_grad()
+
+        logger.info(f"Completed training on skill {i}.")
+
+        logger.info(f"Evaluating model trained on skill {i} on all skills.")
+
+
+        evaluator.model = model_copy
+        loss_j = evaluator.evaluate( tokenized_val, counter, tmp_weights, None)
+
+        # reset tokenized_val
+        if args.task_name == "ni":
+            tokenized_val, _ = validation_data.get_tokenized_dataset()          
+
+        before_loss = all_losses[-1]
+        after_loss = []
+        for j, skill_j in enumerate(loss_j):
+            after_loss.append(np.array(loss_j[skill_j]).mean())
+
+        # adjacency matrix value at (i, j) is the difference between the loss of skill j before and after training on skill i
+        delta_loss = np.array(before_loss) - np.array(after_loss)
+
+        # the columns of the adjacency matrix are the losses when trained on i and evaluated on j
+        adjacency_matrix[i] = delta_loss
+
+        # Cleanup the copied model to free GPU memory
+        del model_copy
+        torch.cuda.empty_cache()
+
+    # reset train proportions back to original values
+    train_data.set_proportions(args, current_train_proportions)
+    evaluator.model = model
+
+    return adjacency_matrix
 
 class DynamicGraphTrainer(AbstractTrainer):
     def train(
@@ -145,12 +226,13 @@ class DynamicGraphTrainer(AbstractTrainer):
                     wandb.log({"train_loss": loss})
                     
                 if counter % ckpt_steps == 0:                    
+
+                    if args.task_name == "ni":
+                        tokenized_val, _ = validation_data.get_tokenized_dataset()          
+
                     loss_dict = evaluator.evaluate(
                         tokenized_val, counter, weights, output_idxs
                     )  
-                    
-                    if args.task_name == "ni":
-                        tokenized_val, _ = validation_data.get_tokenized_dataset()          
                     
                     # compute losses every ckpt_steps 
                     df= pd.DataFrame([{"task_idx": k, "loss": [values.numpy() for values in v]} for k, v in loss_dict.items()])
@@ -172,6 +254,13 @@ class DynamicGraphTrainer(AbstractTrainer):
                             loss_0 = np.array(loss_0)[mw_idxs]
      
                     all_losses.append(df.task_loss.values)
+
+                    # compute the skills graph - how close is it to the original graph? 
+                    adjacency_matrix = compute_skills_graph(args, logger, model, train_data, validation_data, tokenized_val, evaluator, tokenizer, counter, all_losses)
+
+                    # Log the adjacency matrix
+                    logger.info(f"Adjacency Matrix (Losses when trained on i and evaluated on j):\n{adjacency_matrix}")
+                    logger.info(f"Previous graph: {prev_graph}")
                     
                 dataloader_step += 1     
                 counter += 1
@@ -183,84 +272,11 @@ class DynamicGraphTrainer(AbstractTrainer):
             if counter == total_steps:
                 break 
 
-            # save model checkpoint
-            # for each skill, train solely on that skill for update_steps
-            # compute loss for each skill 
+            # reset tokenized_val
+            if args.task_name == "ni":
+                tokenized_val, _ = validation_data.get_tokenized_dataset()          
 
-            logger.info("Starting per-skill training and evaluation to build adjacency matrix.")
-
-            # Initialize adjacency matrix
-            adjacency_matrix = np.zeros((args.k, args.k))
-
-            current_train_proportions = train_data.proportions
-            # current_val_proportions = validation_data.proportions
-
-            for i in range(args.k):
-                logger.info(f"Training model copy on skill {i}.")
-
-                # Create a deep copy of the model
-                model_copy = copy.deepcopy(model)
-                model_copy = model_copy.cuda()
-
-                # Set the copied model to training mode
-                model_copy.train()
-
-                # Create optimizer and scheduler for the copied model
-                optimizer_copy, scheduler_copy = create_optimizer_scheduler(model_copy, args.lr, args.update_steps)
-
-                
-                # train on skill i, so set the proportion of skill i to 1, and all others to 0
-                tmp_weights = np.zeros(args.k)
-                tmp_weights[i] = 1
-
-                train_data.set_proportions(args, tmp_weights)
-                tokenized_train_i = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
-                train_dataloader_i = get_train_dataloader(args.task_name, tokenizer, tokenized_train, args.batch_size, args.slicer)
-
-                # Training loop for the copied model
-                for step, batch in enumerate(train_dataloader_i):
-                    if step >= args.update_steps:
-                        break
-
-                    batch = {k: v.cuda() for k, v in batch.items() if torch.is_tensor(v)}
-                    outputs = model_copy(**batch)
-                    loss = outputs.loss
-                    loss.mean().backward()
-                    clip_grad_norm_(model_copy.parameters(), max_grad_norm)
-                    optimizer_copy.step()
-                    scheduler_copy.step()
-                    model_copy.zero_grad()
-
-                logger.info(f"Completed training on skill {i}.")
-
-                logger.info(f"Evaluating model trained on skill {i} on all skills.")
-
-
-                evaluator.model = model_copy
-                loss_j = evaluator.evaluate( tokenized_val, counter, tmp_weights, None)
-
-                # reset tokenized_val
-                if args.task_name == "ni":
-                    tokenized_val, _ = validation_data.get_tokenized_dataset()          
-
-                before_loss = all_losses[-1]
-                after_loss = []
-                for j, skill_j in enumerate(loss_j):
-                    after_loss.append(np.array(loss_j[skill_j]).mean())
-
-                # adjacency matrix value at (i, j) is the difference between the loss of skill j before and after training on skill i
-                delta_loss = np.array(after_loss) - np.array(before_loss)
-
-                # the columns of the adjacency matrix are the losses when trained on i and evaluated on j
-                adjacency_matrix[i] = delta_loss
-
-                # Cleanup the copied model to free GPU memory
-                del model_copy
-                torch.cuda.empty_cache()
-
-            # reset train proportions back to original values
-            train_data.set_proportions(args, current_train_proportions)
-            evaluator.model = model
+            adjacency_matrix = compute_skills_graph(args, logger, model, train_data, validation_data, tokenized_val, evaluator, tokenizer, counter, all_losses)
 
             # Log the adjacency matrix
             logger.info(f"Adjacency Matrix (Losses when trained on i and evaluated on j):\n{adjacency_matrix}")
@@ -333,6 +349,9 @@ class DynamicGraphTrainer(AbstractTrainer):
             tokenized_train = get_tokenized_train_dataset(args, train_data, args.update_steps*args.batch_size)
             train_dataloader = get_train_dataloader(args.task_name, tokenizer, tokenized_train, args.batch_size, args.slicer)
                         
+        if args.task_name == "ni":
+            tokenized_val, _ = validation_data.get_tokenized_dataset()
+
         loss_dict = evaluator.evaluate(
             tokenized_val, counter, weights, output_idxs
         )      
